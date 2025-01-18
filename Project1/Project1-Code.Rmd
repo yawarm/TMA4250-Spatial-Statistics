@@ -1,0 +1,1062 @@
+---
+title: 'TMA4250: Spatial Statistics, Project 1: Gaussian Random Fields'
+author: "Yawar Mahmood"
+date: "2024-02-17"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(tidy=TRUE, width.cutoff=60)
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyr)
+library(ggplot2)
+library(geoR)
+library(fields)
+library(MASS)
+library(akima)
+library(sp)
+library(gstat)
+library(fields)
+library(dplyr) 
+library(patchwork) 
+library(viridis)
+
+```
+
+# Problem 1: GRFs - model characteristics
+
+## a)
+
+The correlation function must be positive semi-definite. This condition is specified mathematically as:
+
+\[
+\sum_{i=1}^{n} \sum_{j=1}^{n} c_i c_j \rho(||s_i - s_j||) \geq 0
+\]
+
+That is, for any set of points \(\{ s_1, \dots, s_n \} \in D\) and for any set of real numbers \(\{c_1, \dots, c_n\}\), the correlation function \(\rho\) must satisfy the above equation. This constraint also ensures that the correlation function (or the correlation matrix) is positive semi-definite. 
+
+This requirement is necessary for several reasons, such as Statistical Coherence: Positive semi-definite guarantees that the estimated variances and covariances does not lead to any "impossible" scenarios, such as predicting negative variances. 
+
+The given correlation functions we are to display are:
+
+- Powered exponential with power \(\alpha = 1\) and spatial scale \(a = 10\).
+
+- Powered exponential with power \(\alpha = 1.9\) and spatial scale \(a = 10\).
+
+- Matérn with smoothness \(\nu\) = 1 and range \(a = 20\).
+
+- Matérn with smoothness \(\nu\) = 3 and range \(a = 20\).
+
+And let the marginal variance take the values \(\sigma^2 \in \{1,5\}\)
+
+The correlation powered exponential model can be expressed as:
+
+\[
+\rho(h) = \text{exp}\left( -\left( \frac{h}{a} \right)^\alpha \right)
+\]
+
+and the Matérn model:
+
+\[
+\rho(h) = \frac{2^{1-\nu}}{\Gamma(\nu)} \left( \frac{\sqrt{8\nu}h}{a} \right) K_\nu \left( \frac{\sqrt{8\nu}h}{a} \right)
+\]
+
+Where \(K_\nu\) is the modified Bessel function of the second kind, of order v. 
+
+The semi-variogram function \(\gamma(h)\) is given by:
+
+\[
+\gamma(h) = \sigma^2(1 - \rho(h))
+\]
+
+```{r problem_1_a, warning=FALSE}
+
+# Sequence of distances h
+h <- seq(0, 50, by = 0.1)
+
+# Powered Exponential Correlation Functions
+rho_PE1 <- exp(-h / 10)  # α = 1, a = 10
+rho_PE2 <- exp(-(h / 10)^1.9)  # α = 1.9, a = 10
+
+# Matérn Correlation Functions
+rho_Matern1 <- matern(h, kappa = 1, phi = 20)  # Smoothness ν = 1, scale = 20
+rho_Matern2 <- matern(h, kappa = 3, phi = 20)  # Smoothness ν = 3, scale = 20
+
+# Prepare data for ggplot
+data <- data.frame(h = rep(h, 4), Correlation = c(rho_PE1, rho_PE2, rho_Matern1, rho_Matern2), Model = rep(c('PE, α=1', 'PE, α=1.9', 'Matérn, ν=1', 'Matérn, ν=3'), each = length(h)))
+
+# Plot
+ggplot(data, aes(x = h, y = Correlation, color = Model)) +
+  geom_line() +
+  scale_color_manual(values = c('PE, α=1' = 'blue', 'PE, α=1.9' = 'red', 'Matérn, ν=1' = 'green', 'Matérn, ν=3' = 'purple')) +
+  labs(title = 'Correlation Functions',
+       x = 'Distance',
+       y = 'Correlation',
+       caption = "Correlation functions for different parameter settings of the Powered Exponential and Matérn models.") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.title.x = element_text(hjust = 0.5),
+        axis.title.y = element_text(hjust = 0.5),
+        legend.title = element_blank())
+
+
+# Marginal variance
+sigma2 <- 1 
+
+# Semi-Variogram 
+gamma_PE1 <- sigma2 * (1 - rho_PE1)
+gamma_PE2 <- sigma2 * (1 - rho_PE2)
+gamma_Matern1 <- sigma2 * (1 - rho_Matern1)
+gamma_Matern2 <- sigma2 * (1 - rho_Matern2)
+
+# Prepare the data for ggplot
+data <- data.frame(
+  Distance = rep(h, 4),
+  SemiVariogram = c(gamma_PE1, gamma_PE2, gamma_Matern1, gamma_Matern2),
+  Model = factor(rep(c('PE, α=1', 'PE, α=1.9', 'Matérn, ν=1', 'Matérn, ν=3'), each = length(h)))
+)
+
+# Plot
+ggplot(data, aes(x = Distance, y = SemiVariogram, color = Model)) +
+  geom_line() +
+  scale_color_manual(values = c('PE, α=1' = 'blue', 'PE, α=1.9' = 'red', 'Matérn, ν=1' = 'green', 'Matérn, ν=3' = 'purple')) +
+  labs(title = 'Semi-Variogram with Marginal Variance set to 1',
+       x = 'Distance',
+       y = 'Semi-Variogram',
+       caption = "Semi-variogram for different parameter settings of the Powered Exponential and Matérn models.") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.title.x = element_text(hjust = 0.5),
+        axis.title.y = element_text(hjust = 0.5),
+        legend.title = element_blank())
+
+# Marginal variance
+sigma2 <- 5 
+
+# Compute Semi-Variogram 
+gamma_PE1 <- sigma2 * (1 - rho_PE1)
+gamma_PE2 <- sigma2 * (1 - rho_PE2)
+gamma_Matern1 <- sigma2 * (1 - rho_Matern1)
+gamma_Matern2 <- sigma2 * (1 - rho_Matern2)
+
+data <- data.frame(
+  Distance = rep(h, 4),
+  SemiVariogram = c(gamma_PE1, gamma_PE2, gamma_Matern1, gamma_Matern2),
+  Model = factor(rep(c('PE, α=1', 'PE, α=1.9', 'Matérn, ν=1', 'Matérn, ν=3'), each = length(h)))
+)
+
+# Plot using ggplot
+ggplot(data, aes(x = Distance, y = SemiVariogram, color = Model)) +
+  geom_line() +
+  scale_color_manual(values = c('PE, α=1' = 'blue', 'PE, α=1.9' = 'red', 'Matérn, ν=1' = 'green', 'Matérn, ν=3' = 'purple')) +
+  labs(title = 'Semi-Variogram with Marginal Variance set to 5',
+       x = 'Distance',
+       y = 'Semi-Variogram',
+       caption = "Semi-variogram for different parameter settings of the Powered Exponential and Matérn models.") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.title.x = element_text(hjust = 0.5),
+        axis.title.y = element_text(hjust = 0.5),
+        legend.title = element_blank())
+
+```
+
+The features of the spatial correlation function are crucial for the associated GRF. 
+
+- Range of correlation: The range parameter, represented by \(a\) in the powered exponential and the range (also a) in the Matérn, decides how quick correlation between points decrease as the distance between said points increases. A large value for this parameter results in a field where dependencies extend over longer distances, and possibly smooth transitions. A smaller value creates fields with more localized patterns of variability, where dependencies diminish fast with distance. We can see this in the semi-variogram plot, at the distance it starts to level off, reach a sill. This distance represents the range of influence. The sill indicates the maximum variance captured by the GRF. A higher sill indicates greater overall variability. This is visual in the plot, as the sill is greater for bigger values of \(\sigma\). 
+
+- Smoothness: The smoothness parameter, represented by \(\alpha\) in the powered exponential and \(\nu\) in the Matérn, decides how continuous or differentiable the field is. This property can also be picked up from the semi-variogram plots. A steeper initial slope suggest less smoothness. 
+
+And the relationship between the marginal variance, correlation function and the variogram function is also an important one. 
+
+- Marginal variance (\(\sigma^2\)): The variance of the process at any point, and sets the scale of fluctuation within the GRF. This measure influences the height of the variogram sill. A higher marginal variance implies a higher sill. 
+
+- Correlation function (\(\rho\)): Describes how the correlation between values at two points change with the distance between them. The correlation function is closely related to the variogram. As the distance between points increases and correlation decreases, the variogram rises until it reaches the sill, reflecting the total marginal variance at the sill. 
+
+- Variogram (\(\gamma\)): The relation between the variogram and the correlation function is inverse. A low correlation relates to a big variogram value, and vice versa. It is a key tool to get a visual representation of the spatial autocorrelation. 
+
+
+
+## b)
+
+It is given that X is a GRF. Hence, its distribution depends on the mean, variance and correlation. 
+
+- E[X(s)] = \(\mu\) = 0, \(\forall s \in D\)
+
+- Var[X(s)] = \(\sigma^2\), \(\forall s \in D\)
+
+- For any two points in D, \(Corr[X(s), X(s')] = \rho(||s - s'||)\)
+
+The mean is simply given as above. The covariance is not given above, but is simply calculated as:
+
+\[
+Cov[X(s), X(s')] = \Sigma_x = \sigma^2 \cdot Corr[X(s), X(s')] = \sigma^2 \cdot \rho(||s - s'||)
+\]
+
+Given all this information on these statistics, the calculation of parameters is trivially done. Given the parameters \(\sigma^2\) and the correlation \(\rho\), which are given in our case, the covariance matrix is calculated as above. 
+
+With \(\mu_x\) and \(\Sigma_x\) determined, one can simulate realizations of X over a grid D by sampling from a multivariate normal:
+
+\[
+X \sim N(\mu_x, \Sigma_x)
+\]
+
+```{r problem_1_b, warning=FALSE}
+
+# Define domain D_tilde
+D_tilde <- 1:50
+
+# Define correlation functions
+powered_exponential <- function(h, alpha, a) {
+  exp(- (h / a) ^ alpha)
+}
+
+matern_correlation <- function(h, nu, a) {
+  matern(h, kappa = nu, phi = a)
+}
+
+# Generate the covariance matrix
+generate_cov_matrix <- function(nu, alpha, a, sigma2, D_tilde, correlation_type) {
+  distances <- as.matrix(dist(matrix(D_tilde, ncol = 1)))
+  if (correlation_type == "PE") {
+    rho <- powered_exponential(distances, alpha, a)
+  } else if (correlation_type == "Matern") {
+    rho <- matern_correlation(distances, nu, a)
+  }
+  return(sigma2 * rho)
+}
+
+# Parameters sets
+params <- list(
+  list(type = "PE", alpha = 1, a = 10, sigma2 = 1),
+  list(type = "PE", alpha = 1.9, a = 10, sigma2 = 1),
+  list(type = "Matern", nu = 1, a = 20, sigma2 = 1),
+  list(type = "Matern", nu = 3, a = 20, sigma2 = 1),
+  list(type = "PE", alpha = 1, a = 10, sigma2 = 5),
+  list(type = "PE", alpha = 1.9, a = 10, sigma2 = 5),
+  list(type = "Matern", nu = 1, a = 20, sigma2 = 5),
+  list(type = "Matern", nu = 3, a = 20, sigma2 = 5)
+)
+
+set.seed(25935)
+
+for (index in 1:length(params)) {
+  p <- params[[index]]
+  
+# Generate covariance matrix for the current parameter set
+  cov_matrix <- generate_cov_matrix(p$nu, p$alpha, p$a, p$sigma2, D_tilde, p$type)
+  
+  # Generate four realizations
+  realizations_df <- data.frame(Location = rep(D_tilde, times = 4))
+  
+  for (i in 1:4) {
+    realization <- mvrnorm(n = 1, mu = rep(0, length(D_tilde)), Sigma = cov_matrix)
+    realizations_df[paste("Realization", i)] <- realization
+  }
+  
+  # Convert data for ggplot
+  long_df <- pivot_longer(realizations_df, cols = starts_with("Realization"), names_to = "Realization", values_to = "Value")
+  
+  # Plot
+  p_title <- if(p$type == "PE") {
+    paste("PE, alpha =", p$alpha, ", a =", p$a, ", sigma^2 =", p$sigma2)
+  } else {
+    paste("Matern, nu =", p$nu, ", a =", p$a, ", sigma^2 =", p$sigma2)
+  }
+  
+  plot <- ggplot(long_df, aes(x = Location, y = Value, color = Realization)) +
+    geom_line() +
+    labs(title = p_title,
+       x = 'Location',
+       y = 'Value',
+       caption = paste("4 realizations of ", p_title)) +
+  theme_minimal(base_size = 15) +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.title.x = element_text(hjust = 0.5),
+        axis.title.y = element_text(hjust = 0.5),
+        legend.title = element_blank())
+  
+  print(plot)
+}
+
+```
+
+These plots are obviously affected by the parameter values. Let´s discuss how these parameters affect the realizations. 
+
+- Power \(\alpha\) in the powered exponential affects the smoothness of the GRF. A lower value results in a rougher spatial pattern, which naturally implies more variability in short distances (higher local variability). Higher values result in slower decay of spatial correlation with distance, and hence smoother curves. 
+
+- Smoothness \(\nu\) in the Matérn correlation function has the same affect as \(\alpha\). The smoothness parameter affects the continuity of the GRF. Higher values gives smoother fields, and vise verca. 
+
+- The marginal variance \(\sigma^2\) determines the overall variability of the GRF. The higher this value is, the bigger the variability of the fields values. This results in larger differences between the "amplitudes" of the motion. This does not affect smoothness directly, just the range of differences between values. 
+
+## c)
+
+The distribution of Y can be determined by looking at the model definition 
+
+\[
+Y_i = X(s_i) + \epsilon_i
+\]
+
+Since the distribution of X is multivariate normal, and Y is a linear combination of X, Y is also multivariate normal due to the properties of linear transformations. 
+
+The mean vector is easily determined:
+
+\[
+E[Y_i] = E[X(s_i) + \epsilon_i] = 0 + 0 = 0
+\]
+
+Since \(\epsilon_i\) is iid normal distributed, \(\epsilon_i \sim N(0, \sigma_N^2)\), where \(\sigma_N^2\) is the nugget variance. Hence:
+
+\[
+\mu_Y = \begin{pmatrix}
+0 \\
+0 \\
+0
+\end{pmatrix}
+\]
+
+The covariance matrix is a bit more "complex" to determine. We have:
+
+\[
+\Sigma_{Y_{ij}} = Cov(Y_I, Y_j) = Cov(X(s_i) + \epsilon_i, X(s_j) + \epsilon_j)
+\]
+
+but because of independence of \(\epsilon\) and that X are from a GRF, we can simplify:
+
+\[
+\Sigma_{Y_{ij}} = Cov(X(s_i), X(s_j)) + Cov(\epsilon_i, \epsilon_j)
+\]
+
+This expression is easier to work with. since \( Cov(X(s_i), X(s_j)) = \sigma^2\rho(||s_i - s_j||) \) and \( Cov(\epsilon_i, \epsilon_j) = \sigma_N^2 \) if \(i=j\) else it is 0. Hence:
+
+\[
+\Sigma_Y = \begin{pmatrix}
+\sigma^2 \rho(0) + \sigma^2_N & \sigma^2 \rho(|s_2 - s_1|) & \sigma^2 \rho(|s_3 - s_1|) \\
+\sigma^2 \rho(|s_1 - s_2|) & \sigma^2 \rho(0) + \sigma^2_N & \sigma^2 \rho(|s_3 - s_2|) \\
+\sigma^2 \rho(|s_1 - s_3|) & \sigma^2 \rho(|s_2 - s_3|) & \sigma^2 \rho(0) + \sigma^2_N
+\end{pmatrix}
+\]
+
+## d)
+
+We now want to determine the distribution of X given Y. Since both are multivariate normal, the distribution of X given Y is also Gaussian. The mean and covariance is given by known formulas:
+
+\[
+\mu_{X|Y=y} = \mu_X + \Sigma_{XY}\Sigma_{YY}^{-1}(y - \mu_Y)
+\]
+
+\[
+\Sigma_{X|Y=y} = \Sigma_{XX} - \Sigma_{XY}\Sigma_{YY}^{-1}\Sigma_{YX}
+\]
+
+Let us consider one of the covariance models from b) for X. Let X follow the Powered Exponential model with \(\alpha = 1.9\), \(\sigma^2 = 5\) and \(a = 10\). 
+
+
+```{r problem_1_d, warning=FALSE}
+
+# Generate the covariance matrix for X
+generate_cov_matrix <- function(s, alpha, a, sigma2) {
+  h <- as.matrix(rdist(s, s))
+  sigma2 * powered_exponential(h, alpha, a)
+}
+
+# Parameters
+alpha <- 1.9
+a <- 10
+sigma2 <- 5
+nugget_vars <- c(0, 0.25)
+
+# Define observation locations
+s_obs <- c(10, 25, 30)
+
+# Simulate one realization of X
+set.seed(321)
+cov_matrix_X <- generate_cov_matrix(D_tilde, alpha, a, sigma2)
+realization_X <- mvrnorm(n = 1, mu = rep(0, length(D_tilde)), Sigma = cov_matrix_X)
+
+# Extract observations at s1, s2, s3
+y_obs <- realization_X[s_obs]
+
+# Compute predictions and 90% prediction intervals
+for (sigma2_N in nugget_vars) {
+  # Adjust the covariance matrix to include the nugget effect
+  Sigma_YY <- generate_cov_matrix(s_obs, alpha, a, sigma2) + diag(rep(sigma2_N, length(s_obs)))
+  
+  # Cross-covariance between X and Y
+  Sigma_XY <- generate_cov_matrix(c(D_tilde, s_obs), alpha, a, sigma2)[1:length(D_tilde), (length(D_tilde) + 1):(length(D_tilde) + length(s_obs))]
+  
+  # Compute conditional mean and covariance for X|Y=y
+  mu_X_given_Y <- Sigma_XY %*% solve(Sigma_YY) %*% (y_obs - rep(0, length(s_obs)))
+  Sigma_X_given_Y <- cov_matrix_X - Sigma_XY %*% solve(Sigma_YY) %*% t(Sigma_XY)
+  
+  # Predictions
+  predicted_X <- mu_X_given_Y
+  #  90% Prediction Intervals
+  pi_lower <- qnorm(0.05, mean=predicted_X, sd=sqrt(diag(Sigma_X_given_Y)))
+  pi_upper <- qnorm(0.95, mean=predicted_X, sd=sqrt(diag(Sigma_X_given_Y)))
+  
+  # Plot
+  plot(D_tilde, predicted_X, type='l', xlab="Location", ylab="Predicted value", main=paste("Predictions with 90% PI, Nugget variance =", sigma2_N))
+  lines(D_tilde, pi_lower, col='red', lty=2)
+  lines(D_tilde, pi_upper, col='red', lty=2)
+  points(s_obs, y_obs, col='blue', pch=19, cex=1.5) 
+  legend("topright", legend=c("Predicted", "90% PI", "Observations"), col=c("black", "red", "blue"), lty=c(1,2,NA), pch=c(NA,NA,19))
+}
+
+```
+
+When looking at these plots, there are several key points to consider:
+
+1. Nugget Variance and Predictions
+
+- With no nugget variance, the predictions are only based on the underlying spatial correlation structure. Therefore, the confidence intervals around observed values are narrow, due to the direct influence of observed data. 
+
+- When introducing a non-zero nugget value, means in practice that one accounts for measurement error not captured by the spatial model. Hence, even at the observed locations, the confidence intervals are slightly wider compared to the zero nugget variance, as we take account for measurement error.
+
+2. Underlying correlation structure and Predictions
+
+- The underlying correlation model define how quickly spatial correlation falls with distance. For this model, with \(\alpha\) close to two, it results in smoother transitions, which can be observed in how predictions change gradually across D. This smoothness influences the confidence in predictions at locations away from direct observations. 
+
+- The marginal variance with a higher value tends to reflect a broader range of the prediciton intervals, while the observed observations anchor the predicitons, causing intervals to narrow. 
+
+3. Observation Locations
+
+- At the observed data points, the predictions align pretty well with the observed values. This demonstrates the model's ability to incorporate observed data effectively. Close to the observation points, the intervals demonstrate transition zones. Meaning, they become narrow before reaching the observed location and widen after moving on. 
+
+## e)
+
+```{r problem_1_e, warning=FALSE}
+
+# Generate covariance matrix
+cov_matrix_X <- generate_cov_matrix(matrix(D_tilde, ncol = 1), alpha, a, sigma2)
+
+# Adjust simulate_and_predict function to ensure finite values
+simulate_and_predict <- function(nugget_var) {
+  Sigma_YY <- generate_cov_matrix(matrix(s_obs, ncol = 1), alpha, a, sigma2) + diag(rep(nugget_var, length(s_obs)))
+  Sigma_XY <- cov_matrix_X[, s_obs]
+  
+  predictions <- list()
+  
+  for (i in 1:100) {
+    realization_X <- mvrnorm(n = 1, mu = rep(0, length(D_tilde)), Sigma = cov_matrix_X)
+    y_obs <- realization_X[s_obs]
+    
+    mu_X_given_Y <- Sigma_XY %*% solve(Sigma_YY) %*% (y_obs - rep(0, length(s_obs)))
+    Sigma_X_given_Y <- cov_matrix_X - Sigma_XY %*% solve(Sigma_YY) %*% t(Sigma_XY)
+    
+    predicted_X <- as.vector(mu_X_given_Y)
+    sd_X_given_Y <- sqrt(diag(Sigma_X_given_Y))
+    
+    pi_lower <- ifelse(is.finite(sd_X_given_Y), qnorm(0.05, mean=predicted_X, sd=sd_X_given_Y), NA)
+    pi_upper <- ifelse(is.finite(sd_X_given_Y), qnorm(0.95, mean=predicted_X, sd=sd_X_given_Y), NA)
+    
+    predictions[[i]] <- list(mean=predicted_X, pi_lower=pi_lower, pi_upper=pi_upper)
+  }
+  
+  mean_predictions <- Reduce("+", lapply(predictions, function(x) x$mean)) / length(predictions)
+  pi_lowers <- Reduce("+", lapply(predictions, function(x) x$pi_lower)) / length(predictions)
+  pi_uppers <- Reduce("+", lapply(predictions, function(x) x$pi_upper)) / length(predictions)
+  
+  list(mean_prediction = mean_predictions, pi_lower = pi_lowers, pi_upper = pi_uppers)
+}
+
+# Calculate results
+for (sigma2_N in nugget_vars) {
+  result <- simulate_and_predict(sigma2_N)
+  
+  # Plot
+    plot(D_tilde, result$mean_prediction, type='l', main=paste("Mean Predictions, Nugget variance =", sigma2_N),
+         xlab="Location", ylab="Predicted value", ylim=c(min(result$pi_lower, na.rm=TRUE), max(result$pi_upper, na.rm=TRUE)))
+    lines(D_tilde, result$pi_lower, col='red', lty=2)
+    lines(D_tilde, result$pi_upper, col='red', lty=2)
+    legend("topright", legend=c("Mean Prediction", "90% PI"), col=c("black", "red"), lty=c(1,2))
+}
+
+```
+
+The discussion under this task is the same as in the previous. Check the discussion under the previous task!
+
+## f)
+
+We will now predict two different predictors for the area under X and above the level 2. The first predictor \(\hat A\) is based on the actual realizations, and is given. The second predictor is based on the simple Kriging predictor \(\hat X\)
+
+```{r problem_1_f, warning=FALSE}
+
+generate_cov_matrix <- function(D_tilde, sigma2, alpha, a) {
+  n <- length(D_tilde)
+  dist_matrix <- abs(outer(D_tilde, D_tilde, "-"))
+  cov_matrix <- sigma2 * exp(- (dist_matrix / a) ^ alpha)
+  cov_matrix
+}
+
+simple_kriging <- function(s_obs, D_tilde, cov_matrix, y_obs) {
+  # Extracting the relevant parts of the covariance matrix
+  C_ss <- cov_matrix[s_obs, s_obs]  # Covariance among observed locations
+  C_ds <- cov_matrix[D_tilde, s_obs]  # Cross-covariance between all locations and observed locations
+
+  if (is.vector(y_obs)) y_obs <- matrix(y_obs, ncol = 1)
+
+  weights <- solve(C_ss) %*% t(C_ds)
+
+  predictions <- C_ds %*% weights %*% y_obs
+
+  return(predictions)
+}
+
+# Generating the covariance matrix
+cov_mat <- generate_cov_matrix(D_tilde, sigma2, alpha, a)
+
+# Simulate 100 realizations, Calculation of A_hat
+set.seed(25935)
+realizations <- replicate(100, mvrnorm(n = 1, mu = rep(0, length(D_tilde)), Sigma = cov_mat))
+
+A_hat_values <- apply(realizations, 2, function(x) sum((x > 2) * (x - 2)))
+
+# Calculation of A_tilde
+
+y_obs <- MASS::mvrnorm(n = 1, mu = rep(0, length(s_obs)), Sigma = cov_matrix[s_obs, s_obs])
+
+predictions <- simple_kriging(D_tilde, s_obs, cov_matrix, y_obs)
+
+A_tilde <- sum(ifelse(predictions > 2, predictions - 2, 0))
+
+
+# Results
+A_hat_mean <- mean(A_hat_values)
+
+cat("A_hat:", A_hat_mean, "\n")
+cat("A_tilde:", A_tilde, "\n")
+
+```
+
+The value of \(\hat A\) is found to be approximately 12, which means that on average, the area under the realizations of X where \(X > 2\) is approximately 12. For \(\tilde A\) we got the area to be 0, indicating that none of the simple Kriging predictions exceeded 2 at any point. This might be a result of the Kriging algorithm, as it tends to moderate the extremes of X. This leads to an underestimation of A. 
+
+From our result, we see that the Jensen inequality \(\hat A \geq \tilde A\). Jensen inequality says that:
+
+\[
+E[f(X)] \geq f(E[X])
+\]
+
+holds. The reason is the Kriging process tends to moderate the extrems of X. 
+
+## g)
+
+Through the exploration done in this task, I have gained several of key insights:
+
+- Correlation functions have a significant affect on the spatial structure of a GRF. The powered exponential and Matérn models offer great flexibility in how the correlation decays with distance, and are nice to work with, because of their "smoothness". 
+
+- Variograms provides a visual representation of the spatial dependency structure. They are useful for many purposes, such as assessing model fit.
+
+- Marginal variance has a direct affect on the amplitude of fluctuations in the GRF. 
+
+- Nugget variances are a tool to introduce measurement error to our realizations, and are a great tool to see how small errors can affect our predictions. 
+
+
+# Problem 2: GRF - real data
+
+## a)
+
+```{r problem_2_a, warning=FALSE}
+
+# Read the data
+topo_data <- read.table("/Users/yawarmahmood/Downloads/topo.dat", header = TRUE)
+
+# Scatter plot with color representing elevation
+ggplot(topo_data, aes(x = x, y = y, color = z)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Terrain Elevation", x = "Longitude", y = "Latitude", color = "Elevation", caption = "Scatter plot of observed data") + theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.title.x = element_text(hjust = 0.5),
+        axis.title.y = element_text(hjust = 0.5),
+        legend.title = element_blank())
+
+# Interpolation for contour and image plot
+interp_data <- with(topo_data, interp(x, y, z))
+
+# Contour plot
+contour(interp_data, main = "Contour Plot of Terrain Elevation", xlab="Longitude", ylab="Latitude")
+
+# Image plot
+image.plot(interp_data, main = "Image Plot of Terrain Elevation", xlab="Longitude", ylab="Latitude")
+
+```
+
+Above, three different visualizations of the data points are given. To determine if a stationary GRF is suitable for modelling the terrain elevation in domain D, we will consider these visualizations, and look at the following properties:
+
+- Spatial Homogeneity: A stationary GRF assumes that mean and variance does not change over space. Looking at the graph, we see that for higher Y values, the elevation (Z value) seems to be a lot smaller, than for smaller Y values. There seems to be a clear trend, which suggest that the process is non-stationary. To explore this further, let us isolate (X,Z) and (Y,Z). What we should expect to see in the plots is no clear trends, then the process is stationary. 
+```{r problem_2_a_homogeneity_mean, warning=FALSE}
+
+# Plotting elevation Z against X
+ggplot(topo_data, aes(x = x, y = z)) +
+  geom_point(aes(color = z)) +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  theme_minimal() +
+  labs(title = "Elevation (Z) vs. X", x = "X", y = "Elevation (Z)", caption = "We see that there is no evident trend between Z and X. This is good for our stationarity assumption") + theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.title.x = element_text(hjust = 0.5),
+        axis.title.y = element_text(hjust = 0.5),
+        legend.title = element_blank())
+
+# Plotting elevation Z against Y
+ggplot(topo_data, aes(x = y, y = z)) +
+  geom_point(aes(color = z)) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  theme_minimal() +
+  labs(title = "Elevation (Z) vs. Y", x = "Y", y = "Elevation (Z)", caption = "We see a strong linear trend in the data. This is not promising for our stationarity assumption") + theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.title.x = element_text(hjust = 0.5),
+        axis.title.y = element_text(hjust = 0.5),
+        legend.title = element_blank())
+
+```
+There seems to be a clear mean in the Z vs Y graph, which suggest that the mean is non-stationary.
+
+We now want to explore if the variance is stationary or not. For this, we need to access the residuals of the data, and look at how they are spread consistent across values of Y after detrending the data. If this is the case, it suggest that the variance is stationary. 
+
+```{r problem_2_a_homogeneity_variance, warning=FALSE}
+
+# Detrend data by fitting a linear model
+model <- lm(z ~ y, data = topo_data)
+
+# Residuals
+topo_data$residuals <- residuals(model)
+
+# Plot residuals to assess variance stationarity
+ggplot(topo_data, aes(x = y, y = residuals)) +
+  geom_point(alpha = 0.5) +  # Plot residuals as points with some transparency
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +  # Add a horizontal line at 0
+  labs(title = "Residuals vs Detrended Y", x = "Y", y = "Residuals", caption = "The residuals does not seem to follow any trend, which is promising for our stationarity assumption") +
+  theme_minimal() + theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.title.x = element_text(hjust = 0.5),
+        axis.title.y = element_text(hjust = 0.5),
+        legend.title = element_blank())
+
+```
+
+Which seems to be the case. 
+
+The variance seems to be stationary, while the mean seems to be non-stationary. Based on this analysis, the data is non-stationary, and using a stationary GRF would not be ideal. 
+
+- Isotropy: We want to check if the spatial correlation between points only depend on the distance between them, not the direction. This can be studied by looking at the contour plot, where we want to look for any directional biases in the elevation change. If we find such a bias, the GRF is anisotropic. Looking at the counter plot, there seems to be a clear trend "downwards", which is the preferred direction of variation. Hence, the process is not Isotropic. 
+
+- Variability and Trends: This is clealy present from the discussion above. The gradient in color across the plot challenges the assumption of stationarity. 
+
+In conclusion, the stationary GRF is not a suitable model for the terrain elevation. 
+
+
+## b)
+
+The universal Kriging Predictior for a location \(s_0\) is given by:
+
+\[
+\hat{X}(s_0) = g(s_0)^T\hat{\beta} + c^T(s_0)C^{-1}(y - G\hat{\beta})
+\]
+
+where:
+
+- \(g(s_0)\) is the vector of explanatory variables at location \(s_0\).
+
+- \(\hat{\beta}\) is the estimate of the regression coefficients obtained by solving the generalized least squares problem.
+
+- \(c(s_0)\) is the vector of covariances between \(s_0\) and the observed locations in \(D\).
+
+- \(C\) is the covariance matrix for the observed locations, incorporating \(\sigma^2\) and \(\rho\).
+
+- \(y\) is the vector of observed values.
+
+- \(G\) is the matrix of explanatory variables for all observed locations.
+
+Looking at the expression of the universal Kriging Predictor, it reminds of the expression of a regression problem. Hence, to find \(\hat{\beta}\) we solve the generalized least square problem:
+
+\[
+\hat{\beta} = (G^TC^{-1}G)^{-1}G^TC^{-1}y
+\]
+
+The variance of the prediction error at \(s_0\) is given by:
+
+\[
+Var[\hat{X}(s_0) - X(s_0)] = Var[ g(s_0)^T\hat{\beta} + c^T(s_0)C^{-1}(y - G\hat{\beta}) - X(s_0) ]
+\]
+
+Since \(\hat{\beta}\) and \(c^T(s_0)C^{-1}(y-G\hat{\beta})\) are linear transformation, we can use the linearity of the variance operator:
+
+\[
+\text{Var}[\hat{X}(s_0) - X(s_0)] = \text{Var}[g(s_0)^T\hat{\beta}] + \text{Var}[\mathbf{c}^T(s_0) \mathbf{C}^{-1}(y - G\hat{\beta})] - 2\text{Cov}[g(s_0)^T\hat{\beta}, \mathbf{c}^T(s_0) \mathbf{C}^{-1}(y - G\hat{\beta})].
+\]
+
+Inserting for \(\hat{\beta}\) we get our final expression:
+
+\[
+\text{Var}[\hat{X}(s_0) - X(s_0)] = \sigma^2 + g(s_0)^T (G^T \mathbf{C}^{-1} G)^{-1} g(s_0) - 2 \mathbf{c}^T(s_0) \mathbf{C}^{-1} G (G^T \mathbf{C}^{-1} G)^{-1} g(s_0) + \mathbf{c}^T(s_0) \mathbf{C}^{-1} \mathbf{c}(s_0)
+\]
+
+The marginal variance term \(\sigma^2\) describes the overall variability in the GRF not explained by the deterministic trend \(g(s)^T\beta\). For the case of universal kriging, it is assumed that \(\beta^2\) has a constant value. But if the value of \(\sigma^2\) should change all depends on \(g(s)\). If changing the parameterization of g leads to a significant change in the resudial variability, it may suggest that \(\sigma^2\) could be changed.  
+
+
+## c)
+
+We now want to use the ordinary Kriging model where we set \(E[X(s)] = \beta_1\). This constant mean is not set explicitly in the code chunk below, but is estimated internally by the Kriging method based on the spatial distribution of the provided data. We calculate \(\hat{X}(s)\) and associated variances on a regular grid \(D = \{1, 2, \ldots, 315\}^2\) as given in the code chunk below:
+
+```{r problem_2_c, warning=FALSE}
+
+coordinates(topo_data) <- ~x+y
+
+# Variogram model calcualtion
+variogram_model <- variogram(z ~ 1, topo_data)
+fit_variogram <- fit.variogram(variogram_model, model = vgm(1, "Sph", 300, 1))
+
+# Define the regular grid D
+grd <- expand.grid(x = seq(1, 315, by = 1), y = seq(1, 315, by = 1))
+coordinates(grd) <- ~x+y
+gridded(grd) <- TRUE
+
+# Perform ordinary Kriging
+kriging_result <- krige(z ~ 1, topo_data, grd, model = fit_variogram, nmax = 30)
+
+kriging_df <- as.data.frame(kriging_result)
+
+# Plot predictions
+ggplot(kriging_df, aes(x = x, y = y, fill = var1.pred)) +
+  geom_tile() +  # Use geom_tile for spatial raster data
+  scale_fill_viridis_c() +  # Optional: Use viridis color scale for better visuals
+  labs(title = "Kriging Predictions", x = "Longitude", y = "Latitude", fill = "Prediction", caption = "Kriging Predictions with a spherical variogram model, based on the topological data.\n The predictions seems to be continous.") +
+  theme_minimal() + theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.title.x = element_text(hjust = 0.5),
+        axis.title.y = element_text(hjust = 0.5),
+        legend.title = element_blank()) + coord_fixed() 
+
+# Plot variances
+ggplot(kriging_df, aes(x = x, y = y, fill = var1.var)) +
+  geom_tile() +  # Use geom_tile for spatial raster data
+  scale_fill_viridis_c() +  # Optional: Use viridis color scale for better visuals
+  labs(title = "Kriging Prediction Variances", x = "Longitude", y = "Latitude", fill = "Variance", caption = "The variances does not seem to be too high - a deviation of most 1.5m.\n Notice, that at the points where we have data the variance is 0.") +
+  theme_minimal() + theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.title.x = element_text(hjust = 0.5),
+        axis.title.y = element_text(hjust = 0.5),
+        legend.title = element_blank()) + coord_fixed()  
+
+```
+
+- Kriging Predictions: Our data file contains discrete amount of data points, while the Kriging process provides us a spatially interpolated surface of the terrain elevation across the domain. It is based on the provided data and the defined variogram. 
+
+- Prediciton Variances: The variances gives insight into the uncertainty associated with the interpolated values. Lower variances, that are to be found around the observed data, show high confidence in the predictions. This map can help us understand where additional data collection may be most beneficial. 
+
+This is actually an optimization problem. nmax is in the code above chosen to be 30, and is the number of neighboring points used for prediciting each location. Is this the "optimal" value for nmax is beyond the scope of this project. 
+
+
+## d)
+
+We now want to introduce a polynomial trend as a part of our mean structure. To do this, we define a function \(g(s)\) based on the specified polynomial functions of the coordinates \(s_1\) and \(s_2\). We are still calculating the predictor over the grid \(D = \{1, 2, \ldots, 315\}^2\)
+
+Given the polynomials \(s_1^ks_2^l\) for \((k,l) \in \{(0,0),(1,0),(0,1),(1,1),(2,0),(0,2)\}\), g can be defined as: 
+
+\[g(s) = \begin{pmatrix}
+1 \\
+s_1 \\
+s_2 \\
+s_1 s_2 \\
+s_1^2 \\
+s_2^2 \\
+\end{pmatrix}\]
+
+The expected value of \(X(s)\) is assumed to be \(E[X(s)] = g(s)^T \beta\), so in our case, the expected value simply becomes:
+
+\[
+E[X(s)] = \beta_1 + \beta_2 s_1 + \beta_3 s_2 + \beta_4 s_1 s_2 + \beta_5 s_1^2 + \beta_6 s_2^2
+\]
+
+We code this realization of the universal Kriging including the polynomial trend below:
+
+```{r problem_2_d, warning=FALSE}
+
+# Define the regular grid D
+grid <- expand.grid(x = seq(1, 315, length.out = 315), y = seq(1, 315, length.out = 315))
+coordinates(grid) <- ~x+y
+gridded(grid) <- TRUE
+
+# Polynomial trend
+trend_formula <- z ~ x + y + I(x*y) + I(x^2) + I(y^2)
+
+# Fit Variogram model
+emp_variogram <- variogram(trend_formula, data = topo_data)
+fit_variogram <- fit.variogram(emp_variogram, model = vgm(1, "Sph", 300, 1))
+
+# Perform universal Kriging with polynomial trend
+uk_result <- krige(formula = trend_formula, locations = topo_data, newdata = grid, 
+                   model = fit_variogram, nmax = 30)
+
+uk_df <- as.data.frame(uk_result)
+
+# Plot predictions
+ggplot(uk_df, aes(x = x, y = y, fill = var1.pred)) +
+  geom_tile() +
+  scale_fill_viridis_c(option = "C", direction = 1, name = "Predictions") +
+  labs(title = "Universal Kriging Predictions",
+       x = "Longitude", y = "Latitude", caption = "Universal Kriging predictions with a polynomial trend") +
+  theme_minimal() +
+  coord_fixed() + theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.title.x = element_text(hjust = 0.5),
+        axis.title.y = element_text(hjust = 0.5),
+        legend.title = element_blank()) + coord_fixed() 
+
+# Plot variances
+ggplot(uk_df, aes(x = x, y = y, fill = var1.var)) +
+  geom_tile() +
+  scale_fill_viridis_c(option = "C", direction = 1, name = "Prediction Variances") +
+  labs(title = "Universal Kriging Prediction Variances",
+       x = "Longitude", y = "Latitude", caption = "Variances for predictions with a polynomial trend.\n The variance seems to have increased as a result of the polynomial trend") +
+  theme_minimal() +
+  coord_fixed() + theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.title.x = element_text(hjust = 0.5),
+        axis.title.y = element_text(hjust = 0.5),
+        legend.title = element_blank())
+
+```
+
+- Kriging Predictions: This plot show how the polynomial trend, along with the spatial correlation, influences the spatial predictions. We can compare this to our previous realization of the process, and deduce if the polynomial trend makes a positive different to our prediction or is just noise that takes us further from the truth. In our case, the variance seems to increase when we add the polynomial trend. This is not good, and we should disregard it.  
+
+- Prediciton Variances: The interpretation of this remains the same as before. 
+
+
+## e)
+
+To calculate what the probability is that the elevation is higher than 850m in the location \(s_0 = (100, 100)^T\), we first need to access the prediction of our model, the variance of our model, and use this in combination with the normal distribution, as X is assumed to be a GRF:
+
+```{r problem_2_e_850_prob, warning=FALSE}
+
+s0 <- SpatialPoints(cbind(100, 100))
+
+# Use 'over' to extract prediction and variance
+s0_data <- over(s0, as(kriging_result, "SpatialPixelsDataFrame"))
+
+s0_prediction <- s0_data$var1.pred
+s0_variance <- s0_data$var1.var
+
+prob_above_850 <- 1 - pnorm(850, mean = s0_prediction, sd = sqrt(s0_variance))
+  
+print(paste("Probability elevation > 850m:", prob_above_850))
+
+```
+
+We now want to calculate the elevation for which it is 0.90 probability that the true elevation is below it:
+
+```{r problem_2_e_0.9_prob, warning=FALSE}
+
+elevation_90 <- qnorm(0.90, mean = s0_prediction, sd = sqrt(s0_variance))
+
+print(paste("Elevation for 0.90 probability:", elevation_90))
+
+```
+
+## f)
+
+Through the exploration done in this task, I have gained several of key insights:
+
+- How to analyze if a data-set is stationary, buth checking for stationary mean and variance. This is quite important as to choose the correct models when modelling a data set. This also gave me insight on data visualization and model suitability, and introduced me to contour maps and image plots, and how to use them, 
+
+- I learned about Kriging, and the difference between ordinary and universal kriging, and that it is used to interpolate spatial data. Universal kriging allows for a more flexible modelling approach, but both got their weaknesses and strengths. This exercise got me thinking about other usecases for Kriging. 
+
+
+
+# Problem 3: Parameter estimation
+
+## a)
+
+```{r problem_3_a, warning=FALSE}
+
+# Parameters
+sigma2 <- 2  
+a <- 3       
+
+# Define grid D
+x <- seq(1, 30)
+y <- seq(1, 30)
+grid <- expand.grid(x=x, y=y)
+
+# Compute distances between all pairs of points in the grid
+distances <- rdist(grid, grid)
+
+# Calculate the covariance matrix
+cov_matrix <- sigma2 * exp(-distances / a)
+
+# Generate one realization of X on D
+set.seed(123) # For reproducibility
+realization <- mvrnorm(n=1, mu=rep(0, nrow(grid)), Sigma=cov_matrix)
+
+# Reshape the realization for plotting
+z_matrix <- matrix(realization, nrow=length(x), byrow=TRUE)
+df <- expand.grid(x = x, y = y)
+df$z <- as.vector(z_matrix)
+
+# Plot
+ggplot(df, aes(x = x, y = y, fill = z)) +
+  geom_tile() +  # Use geom_tile to create a raster plot
+  scale_fill_gradientn(colors = terrain.colors(100)) +  # Use terrain colors
+  labs(title = "Realization of the Stationary GRF on D",
+       x = "s1", y = "s2", fill = "Value", caption = "This is a realization of the GRF on D,\n with marginal variance 2 and scale parameter 3,\n using a exponential correlation.") +
+  theme_minimal() +
+  coord_fixed() + theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.title.x = element_text(hjust = 0.5),
+        axis.title.y = element_text(hjust = 0.5),
+        legend.title = element_blank())
+
+```
+
+
+## b)
+
+```{r problem_3_b, warning=FALSE}
+
+geo_data <- as.geodata(cbind(grid, realization))
+
+# Calculate empirical semi-variogram
+emp_variog <- variog(geo_data, max.dist=max(distances))
+
+# Convert empirical semi-variogram to data frame
+emp_variog_df <- data.frame(
+  Distance = emp_variog$u,
+  Variogram = emp_variog$v
+)
+
+# True semi-variogram
+true_semi_variogram <- function(h) sigma2 * (1 - exp(-h / a))
+
+# A sequence of distances
+h_seq <- seq(0, max(emp_variog_df$Distance), by = 0.1)
+
+# Convert true semi-variogram to data frame
+true_variog_df <- data.frame(
+  Distance = h_seq,
+  Variogram = true_semi_variogram(h_seq)
+)
+
+# Plot
+ggplot() +
+  geom_line(data = emp_variog_df, aes(x = Distance, y = Variogram), color = "black") +
+  geom_line(data = true_variog_df, aes(x = Distance, y = Variogram), color = "red") +
+  labs(title = "Empirical vs. True Semi-Variogram", x = "Distance", y = "Semi-Variogram", caption = "The true exponential semi-variogram in red \n aligns well with the black emperical semi-varigram. \n Both the sill and range match out.") +
+  theme_minimal() +
+  scale_color_manual(values = c("Empirical" = "black", "True" = "red")) +
+  guides(color = guide_legend(title = "Legend")) + theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.title.x = element_text(hjust = 0.5),
+        axis.title.y = element_text(hjust = 0.5),
+        legend.title = element_blank())
+
+```
+
+The theoretical and empirical semi-variograms seems to align pretty well. More discussion on what this implies in the following task!
+
+## c)
+
+```{r problem_3_c, warning=FALSE}
+
+# Function to generate one realization of X on D
+generate_realization <- function(grid, sigma2, a, seed = NULL) {
+  if (!is.null(seed)) {
+    set.seed(seed)
+  }
+  distances <- as.matrix(fields::rdist(grid))
+  cov_matrix <- sigma2 * exp(-distances / a)
+  realization <- MASS::mvrnorm(n = 1, mu = rep(0, nrow(grid)), Sigma = cov_matrix)
+  return(realization)
+}
+
+# Theoretical semi-variogram function
+theoretical_variogram <- function(dist, sigma2, a) {
+  sigma2 * (1 - exp(-dist / a))
+}
+
+# Function to plot realization and semi-variograms
+plot_realization_and_variogram <- function(realization, grid, sigma2, a, iteration) {
+  grid$z <- realization  # Add realization values to the grid
+  
+  # Plot the realization
+  p1 <- ggplot(grid, aes(x = x, y = y, fill = z)) +
+    geom_tile() +
+    scale_fill_viridis_c() +
+    labs(title = paste("Realization of the GRF on D - Iteration", iteration), x = "X", y = "Y") +
+    theme_minimal()
+  
+  # Calculate empirical semi-variogram
+  geo_data <- as.geodata(cbind(grid$x, grid$y, z = grid$z))
+  emp_variog <- variog(geo_data)
+  emp_variog_df <- data.frame(Distance = emp_variog$u, Variogram = emp_variog$v)
+  
+  # Calculate theoretical semi-variogram
+  distances <- seq(min(emp_variog_df$Distance), max(emp_variog_df$Distance), length.out = 100)
+  true_variog_values <- theoretical_variogram(distances, sigma2, a)
+  true_variog_df <- data.frame(Distance = distances, Variogram = true_variog_values)
+
+  # Plot
+  p2 <- ggplot() +
+    geom_line(data = emp_variog_df, aes(x = Distance, y = Variogram), color = "black") +
+    geom_line(data = true_variog_df, aes(x = Distance, y = Variogram), color = "red") +
+    labs(title = paste("Empirical vs. True Semi-Variogram - Iteration", iteration),
+         x = "Distance", y = "Semi-Variogram") +
+    theme_minimal() +
+    scale_color_manual(values = c("Empirical" = "black", "True" = "red")) +
+    guides(color = guide_legend(title = "Legend"))
+
+  # Dislpay plots
+  print(p1)
+  print(p2)
+}
+
+# Repeat point a) and b) three times
+for (i in 1:3) {
+  realization <- generate_realization(grid, sigma2, a, seed = 3141 + i)
+  plot_realization_and_variogram(realization, grid, sigma2, a, i)
+}
+
+```
+
+We observe that none of the iterations generate the same results. The variation is a good thing, as they are a natural characteristic of stochastic simulations. This is a result of sampling variability. The realizations of X will be different, and there is not information one can take out from that fact. 
+
+The discussion regarding the true semi-variogram and empirical semi-variogram is more interesting. 
+
+The shapes of the emperical and true semi-variogram should match, as it indicates that the data represents well the underlying spatial process modeled. This seems to be the case for our model, which is promising for our prediction!
+
+One thing that stands out is that the true and emperical semi-variogram does not start at the same point, but their first values align well. This is due to a nugget effect. Since they align and the effect is present, suggest that the measurement error is consistent with the models assumptions, which is promising for our prediction!
+
+One thing that does not look good between the theoretical and emperical semi-variograms is the matching of the sill. Provided that we only generate tree simulations here, this is not enough data to make a conclusion. Disregarding this, a mismatch might suggest that the spatial scale or total variance is different, and the model may need a reevaluation. 
+
+All in all, the model seems to fit the data good!
+
+## d)
+
+Did not have time to perform this task!
+
+```{r problem_3_d, warning=FALSE}
+
+
+
+```
+
+## e)
+
+Did not have time to perform this task!
+
+```{r problem_3_e, warning=FALSE}
+
+
+
+```
+
+
+## f)
+
